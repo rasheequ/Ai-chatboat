@@ -1,0 +1,7 @@
+{
+  "name": "Samastha AI Portal",
+  "description": "A multilingual AI chatbot and knowledge base for Samastha Kerala Jamiyyathul Ulama, featuring voice interaction and RAG capabilities.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
