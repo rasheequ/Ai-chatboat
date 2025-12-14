@@ -1,23 +1,14 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, AppSettings } from '../types';
-import { getEmbeddings, findBestMatches, generateRAGResponse, transcribeAudio, generateSpeech, connectLiveSession } from '../services/geminiService';
+import { getEmbeddings, findBestMatches, generateRAGResponse, transcribeAudio } from '../services/geminiService';
 import { mockDB } from '../services/mockFirebase';
 import VoiceInput from './VoiceInput';
-import { Send, Volume2, Globe, Sparkles, User, MoreHorizontal, ArrowUp, BookOpen, Share2, Copy, Check, Phone, BrainCircuit } from 'lucide-react';
+import { ArrowUp, BookOpen, Share2, Copy, Check, Sparkles, BrainCircuit } from 'lucide-react';
 import { useLiquid } from './LiquidBackground';
 import Markdown from 'react-markdown';
 
 // Audio Encoding Helpers
-function base64ToUint8Array(base64: string) {
-    const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes;
-}
-
 const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, _) => {
       const reader = new FileReader();
@@ -35,11 +26,10 @@ const ChatInterface: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
       showTextInput: true,
-      useLiveMode: false,
       appName: 'Samastha AI',
-      appDescription: ''
+      appDescription: '',
+      enableVoiceInput: true
   });
-  const [isPlayingTTS, setIsPlayingTTS] = useState(false);
   const [waitingForNumber, setWaitingForNumber] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
@@ -47,12 +37,9 @@ const ChatInterface: React.FC = () => {
   const textInputRef = useRef<HTMLInputElement>(null);
   const { addRipple, triggerFlash } = useLiquid();
   
-  // Live API Refs
-  const liveSessionRef = useRef<any>(null);
-  const inputAudioContextRef = useRef<AudioContext | null>(null);
-  const outputAudioContextRef = useRef<AudioContext | null>(null);
-  const nextStartTimeRef = useRef<number>(0);
-
+  // Audio & Process Control Refs
+  const isGenerationCancelled = useRef(false);
+  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -101,25 +88,16 @@ const ChatInterface: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const playTextToSpeech = async (text: string) => {
-      if (isPlayingTTS) return;
-      setIsPlayingTTS(true);
-      addRipple(0, 0, 0.4);
-      const audioData = await generateSpeech(text);
-      if (audioData) {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        const buffer = await audioCtx.decodeAudioData(base64ToUint8Array(audioData).buffer);
-        const source = audioCtx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioCtx.destination);
-        source.onended = () => {
-            setIsPlayingTTS(false);
-            audioCtx.close();
-        };
-        source.start();
-      } else {
-          setIsPlayingTTS(false);
+  // Handle Stopping/Pausing
+  const handleStop = () => {
+      // Cancel Generation
+      if (isLoading) {
+          isGenerationCancelled.current = true;
+          setIsLoading(false);
       }
+      
+      addRipple(0, 0, 0.2);
+      triggerFlash(0.1);
   };
 
   const handleCopy = (text: string, id: string) => {
@@ -146,6 +124,7 @@ const ChatInterface: React.FC = () => {
   };
 
   const processQuery = async (queryText: string, isVoice: boolean = false) => {
+    isGenerationCancelled.current = false;
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -160,12 +139,15 @@ const ChatInterface: React.FC = () => {
 
     try {
       const queryEmbedding = await getEmbeddings([queryText]);
+      if (isGenerationCancelled.current) return;
+
       const allChunks = mockDB.getChunks();
       const relevantChunks = queryEmbedding.length > 0 && queryEmbedding[0].length > 0
         ? findBestMatches(queryEmbedding[0], allChunks, 5) 
         : [];
 
       const response = await generateRAGResponse(queryText, relevantChunks);
+      if (isGenerationCancelled.current) return;
 
       const botMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -181,15 +163,19 @@ const ChatInterface: React.FC = () => {
       triggerFlash(0.4); // Subtle flash on response
 
     } catch (error) {
-      console.error("Chat error:", error);
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'model',
-        content: "I apologize, but I encountered an error. Please try again.",
-        timestamp: Date.now()
-      }]);
+      if (!isGenerationCancelled.current) {
+        console.error("Chat error:", error);
+        setMessages(prev => [...prev, {
+            id: (Date.now() + 1).toString(),
+            role: 'model',
+            content: "I apologize, but I encountered an error. Please try again.",
+            timestamp: Date.now()
+        }]);
+      }
     } finally {
-      setIsLoading(false);
+      if (!isGenerationCancelled.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -234,6 +220,7 @@ const ChatInterface: React.FC = () => {
         });
 
         setIsLoading(true);
+        isGenerationCancelled.current = false;
 
         try {
              // 1. Identify Topic
@@ -247,6 +234,8 @@ const ChatInterface: React.FC = () => {
                 ? findBestMatches(queryEmbedding[0], allChunks, 8) 
                 : [];
              
+             if (isGenerationCancelled.current) { setIsLoading(false); return; }
+
              // 3. Generate Detailed Report
              const detailedPrompt = `
                 The user has requested a detailed report on: "${topicQuery}".
@@ -255,6 +244,8 @@ const ChatInterface: React.FC = () => {
              `;
              
              const response = await generateRAGResponse(detailedPrompt, relevantChunks);
+             
+             if (isGenerationCancelled.current) { setIsLoading(false); return; }
 
              // 4. Formatting for Share
              let cleanText = response.text.replace(/\*\*/g, ''); // Remove Markdown bold for plain text clipboard
@@ -273,9 +264,11 @@ const ChatInterface: React.FC = () => {
 
         } catch (e) {
             console.error(e);
-            setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', content: "Error generating detailed report.", timestamp: Date.now() }]);
+            if (!isGenerationCancelled.current) {
+                setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', content: "Error generating detailed report.", timestamp: Date.now() }]);
+            }
         } finally {
-            setIsLoading(false);
+            if (!isGenerationCancelled.current) setIsLoading(false);
         }
         
         return;
@@ -296,12 +289,15 @@ const ChatInterface: React.FC = () => {
 
   const handleAudioCaptured = async (audioBlob: Blob) => {
     setIsLoading(true);
+    isGenerationCancelled.current = false;
     triggerFlash(0.5);
     try {
       const base64Audio = await blobToBase64(audioBlob);
       const transcription = await transcribeAudio(base64Audio, 'audio/webm');
       if (!transcription) throw new Error("Could not understand audio");
       
+      if (isGenerationCancelled.current) { setIsLoading(false); return; }
+
       // If waiting for number via voice
       if (waitingForNumber) {
            setInput(transcription);
@@ -312,14 +308,14 @@ const ChatInterface: React.FC = () => {
       processQuery(transcription, true);
     } catch (error) {
       console.error(error);
-      setIsLoading(false);
+      if (!isGenerationCancelled.current) setIsLoading(false);
     }
   };
 
   // --- Keyboard Shortcuts ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-        // Ignore typing
+        // Ignore typing for most keys, but allow 'p' to stop anytime
         const tagName = (e.target as HTMLElement).tagName;
         if (tagName === 'INPUT' || tagName === 'TEXTAREA') return;
 
@@ -330,7 +326,6 @@ const ChatInterface: React.FC = () => {
             const lastIndex = messages.length - 1;
             if (lastIndex >= 0) {
                 const msg = messages[lastIndex];
-                // Check same conditions as the button render
                 const isActionable = 
                     msg.role === 'model' && 
                     !isLoading && 
@@ -348,103 +343,21 @@ const ChatInterface: React.FC = () => {
         // "t" for Type Text
         if (key === 't') {
             e.preventDefault();
-            if (settings.showTextInput && !settings.useLiveMode) {
+            if (settings.showTextInput) {
                 textInputRef.current?.focus();
             }
+        }
+        
+        // "p" for Pause / Stop
+        if (key === 'p') {
+            e.preventDefault();
+            handleStop();
         }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [messages, isLoading, waitingForNumber, settings]);
-
-  // --- Live API Handlers ---
-  const startLiveSession = async () => {
-    addRipple(0, 0, 1.5);
-    triggerFlash(0.7);
-    const InputCtx = window.AudioContext || (window as any).webkitAudioContext;
-    const OutputCtx = window.AudioContext || (window as any).webkitAudioContext;
-    
-    inputAudioContextRef.current = new InputCtx({ sampleRate: 16000 });
-    outputAudioContextRef.current = new OutputCtx({ sampleRate: 24000 });
-    nextStartTimeRef.current = 0;
-
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const source = inputAudioContextRef.current.createMediaStreamSource(stream);
-    const processor = inputAudioContextRef.current.createScriptProcessor(4096, 1, 1);
-    
-    const sessionPromise = connectLiveSession({
-        onAudioData: async (base64) => {
-            if (!outputAudioContextRef.current) return;
-            const ctx = outputAudioContextRef.current;
-            const rawBytes = base64ToUint8Array(base64);
-            const dataInt16 = new Int16Array(rawBytes.buffer);
-            const audioBuffer = ctx.createBuffer(1, dataInt16.length, 24000);
-            const channelData = audioBuffer.getChannelData(0);
-            for(let i=0; i<dataInt16.length; i++) {
-                channelData[i] = dataInt16[i] / 32768.0;
-            }
-
-            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-            const src = ctx.createBufferSource();
-            src.buffer = audioBuffer;
-            src.connect(ctx.destination);
-            src.start(nextStartTimeRef.current);
-            nextStartTimeRef.current += audioBuffer.duration;
-            addRipple(0, 0, 0.3);
-            triggerFlash(0.2); // Pulse on speech
-        },
-        onTextData: (text) => {},
-        onClose: () => {}
-    });
-
-    liveSessionRef.current = sessionPromise;
-
-    processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        const l = inputData.length;
-        const int16 = new Int16Array(l);
-        for (let i = 0; i < l; i++) {
-            int16[i] = inputData[i] * 32768;
-        }
-        let binary = '';
-        const len = int16.byteLength;
-        const bytes = new Uint8Array(int16.buffer);
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
-        const b64Data = btoa(binary);
-
-        sessionPromise.then(session => {
-            session.sendRealtimeInput({
-                media: {
-                    mimeType: 'audio/pcm;rate=16000',
-                    data: b64Data
-                }
-            });
-        });
-    };
-
-    source.connect(processor);
-    processor.connect(inputAudioContextRef.current.destination);
-  };
-
-  const stopLiveSession = async () => {
-      if (liveSessionRef.current) {
-          liveSessionRef.current.then((s: any) => s.close());
-          liveSessionRef.current = null;
-      }
-      inputAudioContextRef.current?.close();
-      outputAudioContextRef.current?.close();
-  };
-
-  const handleLiveToggle = (isActive: boolean) => {
-      if (isActive) {
-          startLiveSession();
-      } else {
-          stopLiveSession();
-      }
-  };
 
   return (
     <div className="flex flex-col h-full relative font-sans">
@@ -468,13 +381,14 @@ const ChatInterface: React.FC = () => {
             <div className="flex flex-col justify-center">
                 <h1 className="text-sm font-semibold text-white tracking-wide leading-tight group-hover:text-emerald-300 transition-colors">{settings.appName}</h1>
                 <div className="flex items-center gap-1.5">
-                     <span className={`block w-1.5 h-1.5 rounded-full ${settings.useLiveMode ? 'bg-red-500 animate-pulse' : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'}`}></span>
+                     <span className={`block w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]`}></span>
                      <span className="text-[10px] font-medium text-white/60 tracking-wider uppercase">
-                        {settings.useLiveMode ? 'Live Mode' : 'Online'}
+                        Online
                      </span>
                 </div>
             </div>
         </div>
+
       </div>
 
       {/* Chat Area */}
@@ -550,21 +464,12 @@ const ChatInterface: React.FC = () => {
                                 </div>
                              )}
 
-                             {/* Bot Metadata (Timestamp + TTS) */}
+                             {/* Bot Metadata (Timestamp) */}
                              <div className="absolute bottom-2 right-4 flex items-center gap-3">
                                 <span className="text-[10px] text-emerald-100/30 font-mono">
                                     {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                 </span>
                              </div>
-                             
-                             {/* Floating TTS Action */}
-                             <button 
-                                onClick={() => playTextToSpeech(msg.content)} 
-                                className="absolute -bottom-10 left-2 p-2 rounded-full text-white/30 hover:text-emerald-400 transition-all opacity-0 group-hover:opacity-100"
-                                title="Read Aloud"
-                             >
-                                <Volume2 size={18} />
-                             </button>
                         </div>
                         
                         {/* "Know More" Button - Only for the LAST message */}
@@ -626,23 +531,23 @@ const ChatInterface: React.FC = () => {
                 shadow-[0_8px_40px_rgba(0,0,0,0.6)] transition-all duration-500 ease-out
                 flex items-center p-2 gap-2
                 group-hover:border-emerald-500/30 group-hover:shadow-[0_8px_50px_rgba(16,185,129,0.15)]
-                ${settings.useLiveMode ? 'rounded-[3rem] border-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.2)]' : 'rounded-[3rem]'}
+                rounded-[3rem]
             `}>
                 
                 {/* Voice Button Area */}
-                <div className="relative z-20">
-                    <VoiceInput 
-                        onAudioCaptured={handleAudioCaptured} 
-                        onLiveToggle={handleLiveToggle}
-                        isLiveMode={settings.useLiveMode}
-                        disabled={isLoading} 
-                        isProcessing={isLoading}
-                        size="md" // Smaller compact size
-                    />
-                </div>
+                {settings.enableVoiceInput && (
+                    <div className="relative z-20">
+                        <VoiceInput 
+                            onAudioCaptured={handleAudioCaptured} 
+                            disabled={isLoading} 
+                            isProcessing={isLoading}
+                            size="md" // Smaller compact size
+                        />
+                    </div>
+                )}
 
                 {/* Text Input Area */}
-                <div className={`flex-1 transition-all duration-300 ${settings.useLiveMode ? 'opacity-30 pointer-events-none grayscale' : 'opacity-100'}`}>
+                <div className={`flex-1 transition-all duration-300 opacity-100`}>
                     <input
                         ref={textInputRef}
                         type="text"
@@ -655,21 +560,20 @@ const ChatInterface: React.FC = () => {
                             }
                         }}
                         placeholder={
-                            settings.useLiveMode ? "Live conversation active..." : 
                             waitingForNumber ? "Enter your Mobile Number..." : 
                             `Ask ${settings.appName}...`
                         }
-                        disabled={isLoading || settings.useLiveMode || !settings.showTextInput}
+                        disabled={isLoading || !settings.showTextInput}
                         className={`w-full bg-transparent border-none outline-none text-white placeholder-white/30 text-[15px] font-medium px-2 ${!settings.showTextInput && 'hidden'}`}
                         title="Press 't' to focus"
                     />
-                    {!settings.showTextInput && !settings.useLiveMode && (
+                    {!settings.showTextInput && (
                         <p className="text-white/40 text-sm px-2 italic">Type input disabled</p>
                     )}
                 </div>
 
                 {/* Send Button */}
-                <div className={`transition-all duration-300 ${!input.trim() || settings.useLiveMode ? 'scale-75 opacity-0 w-0 overflow-hidden' : 'scale-100 opacity-100 w-10'}`}>
+                <div className={`transition-all duration-300 ${!input.trim() ? 'scale-75 opacity-0 w-0 overflow-hidden' : 'scale-100 opacity-100 w-10'}`}>
                     <button
                         onClick={handleSend}
                         className="w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-transform active:scale-95"
@@ -679,7 +583,7 @@ const ChatInterface: React.FC = () => {
                 </div>
 
                 {/* Fallback space for Send button animation */}
-                {(!input.trim() || settings.useLiveMode) && <div className="w-2" />}
+                {!input.trim() && <div className="w-2" />}
 
             </div>
         </div>

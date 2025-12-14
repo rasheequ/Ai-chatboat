@@ -16,6 +16,7 @@ export interface DocumentChunk {
   docTitle: string;
   text: string;
   embedding?: number[];
+  pageNumber?: number;
 }
 
 export interface UploadedDocument {
@@ -25,6 +26,11 @@ export interface UploadedDocument {
   chunkCount: number;
   size: number;
   isProcessed: boolean;
+  // New Fields
+  category?: 'Fatwa' | 'History' | 'Constitution' | 'General';
+  isTrusted?: boolean; // High priority source
+  version?: number;
+  uploadedBy?: string;
 }
 
 export interface Lead {
@@ -32,6 +38,7 @@ export interface Lead {
   phoneNumber: string;
   queryContext: string;
   timestamp: number;
+  status?: 'Pending' | 'Contacted' | 'Resolved';
 }
 
 export interface ChatState {
@@ -42,12 +49,52 @@ export interface ChatState {
 
 export interface AppSettings {
   showTextInput: boolean;
-  useLiveMode: boolean; // Toggle for Experimental Live API
   appName: string;
   appDescription: string;
-  logoBase64?: string; // Base64 encoded image string
-  systemInstruction?: string; // Custom AI system prompt
-  adminPassword?: string; // Configurable admin password
+  logoBase64?: string;
+  systemInstruction?: string;
+  adminPassword?: string;
+  // Advanced Config
+  modelSelection?: 'gemini-2.5-flash' | 'gemini-1.5-pro';
+  safetyThreshold?: 'Low' | 'Medium' | 'High';
+  enableVoiceInput?: boolean;
+  maintenanceMode?: boolean;
+}
+
+// --- Enterprise Types ---
+
+export enum UserRole {
+  SUPER_ADMIN = 'Super Admin',
+  DOC_ADMIN = 'Document Admin',
+  SCHOLAR = 'Scholar Reviewer',
+  MODERATOR = 'Moderator',
+  ANALYST = 'Analytics Viewer'
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: UserRole;
+  lastLogin: number;
+}
+
+export interface ScholarReview {
+  id: string;
+  query: string;
+  aiAnswer: string;
+  status: 'Pending' | 'Verified' | 'Rejected' | 'Edited';
+  reviewedBy?: string;
+  timestamp: number;
+  category?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  user: string;
+  details: string;
+  timestamp: number;
+  severity: 'Info' | 'Warning' | 'Critical';
 }
 
 export enum View {

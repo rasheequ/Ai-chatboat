@@ -14,7 +14,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onBack }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [settings, setSettings] = useState<AppSettings>({ appName: '', appDescription: '', showTextInput: true, useLiveMode: false });
+  const [settings, setSettings] = useState<AppSettings>({ appName: '', appDescription: '', showTextInput: true });
   const { addRipple } = useLiquid();
 
   useEffect(() => {

@@ -1,130 +1,58 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { UploadedDocument, AppSettings, Lead, DocumentChunk } from '../types';
+import { UploadedDocument, AppSettings, Lead, DocumentChunk, ScholarReview, AuditLog, UserRole } from '../types';
 import { mockDB } from '../services/mockFirebase';
 import { extractTextFromPdf, chunkText } from '../services/pdfService';
 import { getEmbeddings } from '../services/geminiService';
-import { Upload, Trash2, FileText, Database, LogOut, Settings, ToggleLeft, ToggleRight, Activity, Image as ImageIcon, Save, Edit3, MessageCircle, Users, Search, Download, Eye, X, Shield, Cpu, Lock, Phone, Copy } from 'lucide-react';
+import { 
+    Upload, Trash2, Database, LogOut, Settings, ToggleLeft, ToggleRight, 
+    Activity, Save, Edit3, MessageCircle, Users, 
+    Shield, CheckCircle, X, 
+    Clock, LayoutDashboard, Book, GraduationCap, Gavel, FileClock, Menu, RefreshCw, BarChart3, AlertOctagon, Mic
+} from 'lucide-react';
 import { useLiquid } from './LiquidBackground';
 
 interface AdminPanelProps {
   onLogout: () => void;
 }
 
+type AdminView = 'DASHBOARD' | 'KNOWLEDGE' | 'REVIEWS' | 'ANALYTICS' | 'MODERATION' | 'SETTINGS' | 'LOGS';
+
 const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
+  const [activeView, setActiveView] = useState<AdminView>('DASHBOARD');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // Data States
   const [docs, setDocs] = useState<UploadedDocument[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [filteredLeads, setFilteredLeads] = useState<Lead[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<string>('');
-  const [settings, setSettings] = useState<AppSettings>({ 
-    showTextInput: true, 
-    useLiveMode: false,
-    appName: '',
-    appDescription: '',
-    systemInstruction: '',
-    adminPassword: ''
-  });
+  const [reviews, setReviews] = useState<ScholarReview[]>([]);
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [settings, setSettings] = useState<AppSettings>(mockDB.getSettings());
   
-  // Branding Form State
-  const [appName, setAppName] = useState('');
-  const [appDescription, setAppDescription] = useState('');
-  const [systemInstruction, setSystemInstruction] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
-
-  // Inspect Modal State
-  const [inspectDocId, setInspectDocId] = useState<string | null>(null);
+  // UI States
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
+  
+  // Modals
+  const [inspectDoc, setInspectDoc] = useState<string | null>(null);
   const [inspectChunks, setInspectChunks] = useState<DocumentChunk[]>([]);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { addRipple } = useLiquid();
 
   useEffect(() => {
-    loadDocs();
-    loadLeads();
-    loadSettings();
+    refreshData();
+    // Simulate real-time monitoring
+    const interval = setInterval(refreshData, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Filter leads with debouncing
-  useEffect(() => {
-    const handler = setTimeout(() => {
-        if (!searchTerm.trim()) {
-            setFilteredLeads(leads);
-        } else {
-            const lowerTerm = searchTerm.toLowerCase();
-            const results = leads.filter(lead => 
-                lead.phoneNumber.toLowerCase().includes(lowerTerm) || 
-                lead.queryContext.toLowerCase().includes(lowerTerm)
-            );
-            setFilteredLeads(results);
-        }
-    }, 300);
-
-    return () => clearTimeout(handler);
-  }, [searchTerm, leads]);
-
-  const loadDocs = () => {
-    setDocs(mockDB.getDocuments());
+  const refreshData = () => {
+      setDocs(mockDB.getDocuments());
+      setLeads(mockDB.getLeads().sort((a,b) => b.timestamp - a.timestamp));
+      setReviews(mockDB.getReviews().sort((a,b) => b.timestamp - a.timestamp));
+      setLogs(mockDB.getLogs());
+      setSettings(mockDB.getSettings());
   };
-
-  const loadLeads = () => {
-    const sortedLeads = mockDB.getLeads().sort((a,b) => b.timestamp - a.timestamp);
-    setLeads(sortedLeads);
-  }
-
-  const loadSettings = () => {
-    const current = mockDB.getSettings();
-    setSettings(current);
-    setAppName(current.appName);
-    setAppDescription(current.appDescription);
-    setSystemInstruction(current.systemInstruction || '');
-    setAdminPassword(current.adminPassword || 'rasheequ.designs');
-    setLogoPreview(current.logoBase64 || null);
-  };
-
-  const saveSettings = (newSettings: AppSettings) => {
-    setSettings(newSettings);
-    mockDB.saveSettings(newSettings);
-    addRipple(0, 0, 0.5);
-    
-    // Update local state mirrors
-    setAppName(newSettings.appName);
-    setAppDescription(newSettings.appDescription);
-    setSystemInstruction(newSettings.systemInstruction || '');
-    setAdminPassword(newSettings.adminPassword || '');
-    setLogoPreview(newSettings.logoBase64 || null);
-    
-    // Update document title immediately for feedback
-    document.title = newSettings.appName;
-  };
-
-  const handleGeneralSave = () => {
-    const updated: AppSettings = {
-        ...settings,
-        appName,
-        appDescription,
-        logoBase64: logoPreview || undefined,
-        systemInstruction,
-        adminPassword
-    };
-    saveSettings(updated);
-    alert("System configuration saved successfully!");
-  };
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setLogoPreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-    }
-  };
-
-  const toggleTextInput = () => saveSettings({ ...settings, showTextInput: !settings.showTextInput });
-  const toggleLiveMode = () => saveSettings({ ...settings, useLiveMode: !settings.useLiveMode });
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -136,15 +64,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
     }
 
     setIsUploading(true);
-    setUploadStatus('Extracting text...');
-    addRipple(0, 0, 1.0);
-
+    setUploadStatus('Processing PDF...');
+    
     try {
       const { text, pageCount } = await extractTextFromPdf(file);
       setUploadStatus(`Chunking ${pageCount} pages...`);
       const textChunks = chunkText(text);
-      setUploadStatus(`Embedding ${textChunks.length} chunks...`);
+      setUploadStatus(`Generating Embeddings...`);
       const embeddings = await getEmbeddings(textChunks);
+      
       const docId = `doc-${Date.now()}`;
       const newDoc: UploadedDocument = {
         id: docId,
@@ -152,8 +80,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
         uploadDate: Date.now(),
         chunkCount: textChunks.length,
         size: file.size,
-        isProcessed: true
+        isProcessed: true,
+        category: 'General', // Default
+        isTrusted: false
       };
+      
       const chunksWithEmbeddings = textChunks.map((t, i) => ({
         id: `${docId}-chunk-${i}`,
         docId: docId,
@@ -164,479 +95,552 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
 
       mockDB.addDocument(newDoc);
       mockDB.addChunks(chunksWithEmbeddings);
-      setUploadStatus('Done!');
-      loadDocs();
-      setTimeout(() => {
-        setUploadStatus('');
-        setIsUploading(false);
-      }, 2000);
-    } catch (error) {
-      console.error(error);
-      setUploadStatus('Failed');
+      setUploadStatus('Done');
+      setTimeout(() => { setIsUploading(false); setUploadStatus(''); }, 1000);
+      refreshData();
+    } catch (err) {
+      console.error(err);
+      setUploadStatus('Error');
       setIsUploading(false);
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Delete this document and all its knowledge?")) {
-      mockDB.deleteDocument(id);
-      loadDocs();
-      addRipple(0, 0, 0.8);
-    }
+  const handleReviewAction = (review: ScholarReview, action: 'Verified' | 'Rejected') => {
+      const updated = { ...review, status: action, reviewedBy: 'Current Admin' }; // In real app, use logged in user
+      mockDB.updateReview(updated);
+      refreshData();
+      addRipple(0, 0, 0.5);
   };
 
-  const handleExportCSV = () => {
-    if (leads.length === 0) return;
-    const headers = "Phone Number,Date,Query Context\n";
-    const rows = leads.map(l => {
-        const date = new Date(l.timestamp).toLocaleString().replace(',', '');
-        const context = l.queryContext.replace(/"/g, '""'); // Escape quotes
-        return `${l.phoneNumber},"${date}","${context}"`;
-    }).join("\n");
-    
-    const csvContent = "data:text/csv;charset=utf-8," + headers + rows;
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `samastha_leads_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const saveConfig = (newSettings: AppSettings) => {
+      mockDB.saveSettings(newSettings);
+      setSettings(newSettings);
+      addRipple(0, 0, 0.5);
   };
 
-  const handleInspect = (docId: string) => {
-      const allChunks = mockDB.getChunks();
-      const docChunks = allChunks.filter(c => c.docId === docId);
-      setInspectChunks(docChunks);
-      setInspectDocId(docId);
-  };
+  // --- Sub-Components (Inline for single file preference) ---
 
-  const closeInspect = () => {
-      setInspectDocId(null);
-      setInspectChunks([]);
-  };
+  const SidebarItem = ({ view, icon: Icon, label, alertCount }: { view: AdminView, icon: any, label: string, alertCount?: number }) => (
+      <button 
+        onClick={() => setActiveView(view)}
+        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeView === view ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+      >
+          <Icon size={18} />
+          {isSidebarOpen && <span className="text-sm font-medium">{label}</span>}
+          {alertCount && alertCount > 0 && isSidebarOpen && (
+              <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{alertCount}</span>
+          )}
+      </button>
+  );
 
-  const copyToClipboard = (text: string) => {
-      navigator.clipboard.writeText(text);
-      alert(`Copied: ${text}`);
-  };
+  const StatCard = ({ title, value, icon: Icon, color }: any) => (
+      <div className="glass-card p-6 rounded-2xl border-white/5 bg-white/5 flex items-center justify-between">
+          <div>
+              <p className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-1">{title}</p>
+              <h3 className="text-2xl font-bold text-white">{value}</h3>
+          </div>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-${color}-500/20 text-${color}-400`}>
+              <Icon size={20} />
+          </div>
+      </div>
+  );
 
   return (
-    <div className="min-h-screen p-6 overflow-y-auto" onClick={(e) => addRipple((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1, 0.3)}>
-      <nav className="glass-card rounded-2xl px-6 py-4 flex justify-between items-center mb-8 sticky top-4 z-20 bg-white/10 border-white/20">
-        <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-tr from-samastha-green to-emerald-400 rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-500/20 overflow-hidden">
-                {settings.logoBase64 ? (
-                    <img src={settings.logoBase64} alt="Logo" className="w-full h-full object-cover" />
-                ) : (
-                    "A"
+    <div className="flex h-screen overflow-hidden bg-[#00080f]">
+        {/* Sidebar */}
+        <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-black/40 backdrop-blur-xl border-r border-white/10 flex flex-col transition-all duration-300 z-20`}>
+            <div className="p-6 flex items-center gap-3 border-b border-white/5">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center shrink-0">
+                    <span className="font-serif font-bold text-white text-xs">SK</span>
+                </div>
+                {isSidebarOpen && (
+                    <div>
+                        <h1 className="text-sm font-bold text-white leading-tight">Admin Console</h1>
+                        <p className="text-[10px] text-white/40">Enterprise Edition</p>
+                    </div>
                 )}
             </div>
-            <div>
-                <h1 className="text-lg font-bold text-white leading-none">Admin Panel</h1>
-                <p className="text-xs text-emerald-200/80">System Configuration</p>
-            </div>
-        </div>
-        <button 
-            onClick={onLogout}
-            className="flex items-center text-red-200 hover:text-red-100 text-sm font-medium bg-red-500/20 hover:bg-red-500/30 px-4 py-2 rounded-full transition-colors border border-red-500/20"
-        >
-            <LogOut className="w-4 h-4 mr-2"/> Logout
-        </button>
-      </nav>
 
-      <div className="max-w-6xl mx-auto space-y-8">
-        
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="glass-card p-6 rounded-3xl flex items-center justify-between group hover:-translate-y-1 transition-transform duration-300 bg-white/5 border-white/10">
-                <div>
-                    <h3 className="text-sm font-medium text-emerald-200/60 mb-1">Documents</h3>
-                    <p className="text-4xl font-bold text-white">{docs.length}</p>
-                </div>
-                <div className="w-12 h-12 bg-white/10 text-emerald-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <FileText />
-                </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                <p className={`px-4 text-[10px] font-bold text-white/20 uppercase mb-2 ${!isSidebarOpen && 'text-center'}`}>{isSidebarOpen ? 'Main Menu' : 'Menu'}</p>
+                <SidebarItem view="DASHBOARD" icon={LayoutDashboard} label="Dashboard" />
+                <SidebarItem view="KNOWLEDGE" icon={Database} label="Knowledge Base" />
+                <SidebarItem view="REVIEWS" icon={GraduationCap} label="Scholar Review" alertCount={reviews.filter(r=>r.status === 'Pending').length} />
+                <SidebarItem view="ANALYTICS" icon={BarChart3} label="Analytics" />
+                
+                <p className={`px-4 text-[10px] font-bold text-white/20 uppercase mb-2 mt-6 ${!isSidebarOpen && 'text-center'}`}>{isSidebarOpen ? 'System' : 'Sys'}</p>
+                <SidebarItem view="MODERATION" icon={Gavel} label="Moderation" />
+                <SidebarItem view="LOGS" icon={FileClock} label="Audit Logs" />
+                <SidebarItem view="SETTINGS" icon={Settings} label="Settings" />
             </div>
-            <div className="glass-card p-6 rounded-3xl flex items-center justify-between group hover:-translate-y-1 transition-transform duration-300 bg-white/5 border-white/10">
-                <div>
-                    <h3 className="text-sm font-medium text-emerald-200/60 mb-1">Knowledge Chunks</h3>
-                    <p className="text-4xl font-bold text-white">
-                        {docs.reduce((acc, curr) => acc + curr.chunkCount, 0)}
-                    </p>
-                </div>
-                <div className="w-12 h-12 bg-white/10 text-amber-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Database />
-                </div>
-            </div>
-             <div className="glass-card p-6 rounded-3xl flex items-center justify-between group hover:-translate-y-1 transition-transform duration-300 bg-white/5 border-white/10">
-                <div>
-                    <h3 className="text-sm font-medium text-emerald-200/60 mb-1">Total Leads</h3>
-                    <p className="text-4xl font-bold text-white">{leads.length}</p>
-                </div>
-                <div className="w-12 h-12 bg-white/10 text-blue-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Users />
-                </div>
-            </div>
-             <div className="glass-card p-6 rounded-3xl flex items-center justify-between group hover:-translate-y-1 transition-transform duration-300 bg-white/5 border-white/10">
-                <div>
-                    <h3 className="text-sm font-medium text-emerald-200/60 mb-1">System Status</h3>
-                    <p className="text-lg font-bold text-emerald-400 flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                        Operational
-                    </p>
-                </div>
-                <div className="w-12 h-12 bg-white/10 text-emerald-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Activity />
-                </div>
-            </div>
-        </div>
 
-        {/* Leads Table */}
-        <div className="glass-card rounded-3xl overflow-hidden border border-white/10 bg-white/5">
-             <div className="px-8 py-6 border-b border-white/10 bg-white/5 backdrop-blur-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex flex-col">
-                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                        <Users size={20} className="text-green-400"/> Captured Leads
+            <div className="p-4 border-t border-white/5">
+                <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-400/80 hover:text-red-400 hover:bg-red-500/10 p-3 rounded-xl transition-colors">
+                    <LogOut size={18} />
+                    {isSidebarOpen && <span className="text-sm font-medium">Sign Out</span>}
+                </button>
+            </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto relative no-scrollbar" onClick={(e) => addRipple((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1, 0.2)}>
+             {/* Header */}
+            <header className="sticky top-0 z-10 bg-[#00080f]/80 backdrop-blur-md border-b border-white/5 px-8 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-white/50 hover:text-white transition-colors">
+                        <Menu size={20} />
+                    </button>
+                    <h2 className="text-lg font-semibold text-white">
+                        {activeView === 'DASHBOARD' && 'System Overview'}
+                        {activeView === 'KNOWLEDGE' && 'Knowledge Management'}
+                        {activeView === 'REVIEWS' && 'Scholar Verification Queue'}
+                        {activeView === 'ANALYTICS' && 'Performance Analytics'}
+                        {activeView === 'MODERATION' && 'Safety & Moderation'}
+                        {activeView === 'SETTINGS' && 'System Configuration'}
+                        {activeView === 'LOGS' && 'Security Audit Logs'}
                     </h2>
-                    <span className="text-xs text-white/40 mt-1">Users requesting reports</span>
                 </div>
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span className="text-xs font-medium text-emerald-400">System Operational</span>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/80 border border-white/10">
+                        <Shield size={14} />
+                    </div>
+                </div>
+            </header>
+
+            <div className="p-8 max-w-7xl mx-auto space-y-8">
                 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                    {/* Search Bar */}
-                    <div className="relative flex-1 sm:w-64">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={16} />
-                        <input 
-                            type="text" 
-                            placeholder="Search..." 
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="bg-black/20 border border-white/10 rounded-full pl-10 pr-4 py-2 text-sm text-white placeholder-white/30 focus:border-emerald-400 focus:bg-black/30 outline-none w-full transition-all"
-                        />
-                    </div>
-                    {/* Export Button */}
-                     <button 
-                        onClick={handleExportCSV}
-                        title="Export to CSV"
-                        className="bg-white/10 hover:bg-emerald-500/20 text-white p-2 rounded-full border border-white/10 transition-colors"
-                    >
-                        <Download size={18} />
-                    </button>
-                </div>
-            </div>
-            <table className="w-full text-left text-sm text-emerald-100/80">
-                <thead className="bg-white/5 text-emerald-200/60 font-medium">
-                    <tr>
-                        <th className="px-8 py-4">Phone Number</th>
-                        <th className="px-8 py-4">Date</th>
-                        <th className="px-8 py-4">Context / Query</th>
-                        <th className="px-8 py-4 text-right">Action</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                    {filteredLeads.length === 0 ? (
-                        <tr>
-                            <td colSpan={4} className="px-8 py-12 text-center text-white/30">
-                                {leads.length === 0 ? "No leads captured yet." : "No leads found matching your search."}
-                            </td>
-                        </tr>
-                    ) : (
-                        filteredLeads.map((lead) => (
-                            <tr key={lead.id} className="hover:bg-white/5 transition-colors">
-                                <td className="px-8 py-4 font-bold text-white font-mono">
-                                    {lead.phoneNumber}
-                                </td>
-                                <td className="px-8 py-4 text-xs">
-                                    {new Date(lead.timestamp).toLocaleString()}
-                                </td>
-                                <td className="px-8 py-4 text-xs max-w-md truncate">
-                                    {lead.queryContext}
-                                </td>
-                                <td className="px-8 py-4 text-right flex justify-end gap-2">
-                                    <button
-                                        onClick={() => copyToClipboard(lead.phoneNumber)}
-                                        className="inline-flex items-center gap-1 bg-white/5 hover:bg-white/10 text-white px-3 py-1.5 rounded-full text-xs font-medium transition-colors border border-white/10"
-                                        title="Copy Number"
-                                    >
-                                        <Copy size={12}/> 
-                                    </button>
-                                    <a 
-                                        href={`tel:${lead.phoneNumber}`}
-                                        className="inline-flex items-center gap-1 bg-green-500/20 hover:bg-green-500/30 text-green-300 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border border-green-500/20"
-                                        title="Call"
-                                    >
-                                        <Phone size={12}/> Call
-                                    </a>
-                                </td>
-                            </tr>
-                        ))
-                    )}
-                </tbody>
-            </table>
-        </div>
-
-        {/* Customization Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            
-            {/* Branding & Appearance */}
-            <div className="glass-card rounded-3xl p-8 bg-white/5 border-white/10">
-                <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-white/10 rounded-lg"><Edit3 className="w-5 h-5 text-emerald-200"/></div>
-                    <h2 className="text-xl font-bold text-white">Settings</h2>
-                </div>
-                
-                <div className="space-y-6">
-                    {/* Logo Upload */}
-                    <div className="flex items-center gap-4">
-                        <div 
-                            className="w-20 h-20 rounded-2xl bg-black/20 border border-white/10 flex items-center justify-center overflow-hidden cursor-pointer hover:border-emerald-400 transition-colors relative group"
-                            onClick={() => fileInputRef.current?.click()}
-                        >
-                            {logoPreview ? (
-                                <img src={logoPreview} alt="Preview" className="w-full h-full object-cover" />
-                            ) : (
-                                <ImageIcon className="text-white/30" />
-                            )}
-                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                <span className="text-xs text-white">Change</span>
-                            </div>
-                        </div>
-                        <div className="flex-1">
-                            <label className="text-xs text-emerald-200/60 uppercase font-semibold">App Logo</label>
-                            <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                className="hidden" 
-                                accept="image/*"
-                                onChange={handleLogoUpload}
-                            />
-                             <p className="text-[10px] text-white/30 mt-1">Recommended: Square PNG, max 1MB</p>
-                        </div>
-                    </div>
-
-                    {/* App Name */}
-                    <div className="space-y-2">
-                        <label className="text-xs text-emerald-200/60 uppercase font-semibold">Application Name</label>
-                        <input 
-                            type="text" 
-                            value={appName}
-                            onChange={(e) => setAppName(e.target.value)}
-                            className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-emerald-400 outline-none transition-colors"
-                            placeholder="e.g. Samastha AI"
-                        />
-                    </div>
-
-                    {/* Description */}
-                    <div className="space-y-2">
-                        <label className="text-xs text-emerald-200/60 uppercase font-semibold">Description</label>
-                        <textarea 
-                            value={appDescription}
-                            onChange={(e) => setAppDescription(e.target.value)}
-                            rows={2}
-                            className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-emerald-400 outline-none transition-colors resize-none"
-                            placeholder="e.g. AI Assistant for..."
-                        />
-                    </div>
-
-                    <div className="w-full h-px bg-white/10 my-4"></div>
-
-                    {/* System Instruction */}
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2 mb-1">
-                            <Cpu size={14} className="text-emerald-400"/>
-                            <label className="text-xs text-emerald-200/60 uppercase font-semibold">AI System Instruction</label>
-                        </div>
-                        <textarea 
-                            value={systemInstruction}
-                            onChange={(e) => setSystemInstruction(e.target.value)}
-                            rows={4}
-                            className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-mono focus:border-emerald-400 outline-none transition-colors resize-none"
-                            placeholder="Define the AI's behavior, rules, and personality..."
-                        />
-                        <p className="text-[10px] text-white/30">Controls the AI's behavior in RAG and Live modes.</p>
-                    </div>
-
-                    <div className="w-full h-px bg-white/10 my-4"></div>
-
-                    {/* Admin Security */}
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2 mb-1">
-                            <Shield size={14} className="text-red-400"/>
-                            <label className="text-xs text-emerald-200/60 uppercase font-semibold">Admin Password</label>
-                        </div>
-                        <div className="relative">
-                            <Lock size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
-                            <input 
-                                type="text" 
-                                value={adminPassword}
-                                onChange={(e) => setAdminPassword(e.target.value)}
-                                className="w-full bg-black/20 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white focus:border-red-400 outline-none transition-colors"
-                                placeholder="Set new password"
-                            />
-                        </div>
-                    </div>
-
-                    <button 
-                        onClick={handleGeneralSave}
-                        className="w-full bg-emerald-600/80 hover:bg-emerald-500 text-white font-medium py-3 rounded-xl flex items-center justify-center gap-2 transition-colors mt-4"
-                    >
-                        <Save size={16} /> Save All Changes
-                    </button>
-                </div>
-            </div>
-
-            {/* Feature Toggles & Upload */}
-            <div className="space-y-8">
-                 <div className="glass-card rounded-3xl p-8 bg-white/5 border-white/10">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="p-2 bg-white/10 rounded-lg"><Settings className="w-5 h-5 text-emerald-200"/></div>
-                        <h2 className="text-xl font-bold text-white">Features</h2>
-                    </div>
-                    
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors">
-                            <div>
-                                <h3 className="font-semibold text-white">Keyboard Input</h3>
-                                <p className="text-xs text-emerald-200/60">Show text field in chat</p>
-                            </div>
-                            <button onClick={toggleTextInput} className={`transition-colors text-2xl ${settings.showTextInput ? 'text-emerald-400' : 'text-white/20'}`}>
-                                {settings.showTextInput ? <ToggleRight size={40} className="drop-shadow-sm"/> : <ToggleLeft size={40}/>}
-                            </button>
+                {/* --- DASHBOARD VIEW --- */}
+                {activeView === 'DASHBOARD' && (
+                    <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <StatCard title="Active Users" value={Math.floor(Math.random() * 50) + 12} icon={Users} color="blue" />
+                            <StatCard title="Total Documents" value={docs.length} icon={Book} color="emerald" />
+                            <StatCard title="Pending Reviews" value={reviews.filter(r=>r.status === 'Pending').length} icon={Clock} color="amber" />
+                            <StatCard title="Threats Blocked" value="0" icon={Shield} color="red" />
                         </div>
 
-                        <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors">
-                            <div>
-                                <h3 className="font-semibold text-white flex items-center gap-2">
-                                    Gemini Live
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            {/* Live Query Feed */}
+                            <div className="lg:col-span-2 glass-card rounded-2xl p-6 border-white/10">
+                                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                    <Activity size={16} className="text-emerald-400"/> Live Query Feed
                                 </h3>
-                                <p className="text-xs text-emerald-200/60">Real-time voice conversation</p>
+                                <div className="space-y-3">
+                                    {leads.slice(0, 5).map(lead => (
+                                        <div key={lead.id} className="flex items-start gap-4 p-3 rounded-xl bg-white/5 border border-white/5">
+                                            <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                                                <MessageCircle size={14}/>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm text-white/90 font-medium line-clamp-1">"{lead.queryContext}"</p>
+                                                <p className="text-xs text-white/40 mt-1 flex items-center gap-2">
+                                                    <span>{new Date(lead.timestamp).toLocaleTimeString()}</span>
+                                                    <span>•</span>
+                                                    <span>{lead.phoneNumber}</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {leads.length === 0 && <p className="text-white/30 text-sm italic">Waiting for live traffic...</p>}
+                                </div>
                             </div>
-                            <button onClick={toggleLiveMode} className={`transition-colors text-2xl ${settings.useLiveMode ? 'text-red-400' : 'text-white/20'}`}>
-                                {settings.useLiveMode ? <ToggleRight size={40} className="drop-shadow-sm"/> : <ToggleLeft size={40}/>}
+                            
+                            {/* System Health */}
+                            <div className="glass-card rounded-2xl p-6 border-white/10">
+                                <h3 className="text-white font-semibold mb-4">System Health</h3>
+                                <div className="space-y-4">
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-xs text-white/60">
+                                            <span>RAG Latency</span>
+                                            <span className="text-emerald-400">124ms</span>
+                                        </div>
+                                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                            <div className="h-full bg-emerald-500 w-[20%]"></div>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-xs text-white/60">
+                                            <span>Vector DB Usage</span>
+                                            <span className="text-blue-400">12%</span>
+                                        </div>
+                                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                            <div className="h-full bg-blue-500 w-[12%]"></div>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-xs text-white/60">
+                                            <span>API Rate Limit</span>
+                                            <span className="text-amber-400">45%</span>
+                                        </div>
+                                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                            <div className="h-full bg-amber-500 w-[45%]"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* --- KNOWLEDGE BASE --- */}
+                {activeView === 'KNOWLEDGE' && (
+                    <div className="space-y-6">
+                        <div className="glass-card p-6 rounded-2xl border-white/10 flex flex-col md:flex-row items-center justify-between gap-4">
+                             <div>
+                                 <h3 className="text-white font-bold text-lg">Document Repository</h3>
+                                 <p className="text-white/50 text-xs">Manage trusted PDFs, Fatwas, and Historical Records</p>
+                             </div>
+                             <div className="flex items-center gap-3 w-full md:w-auto">
+                                 <div className="relative cursor-pointer hover:scale-105 transition-transform">
+                                    <input 
+                                        type="file" 
+                                        accept="application/pdf"
+                                        onChange={handleFileUpload}
+                                        disabled={isUploading}
+                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                    />
+                                    <button className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                                        {isUploading ? <RefreshCw size={16} className="animate-spin"/> : <Upload size={16} />}
+                                        {isUploading ? uploadStatus : 'Upload PDF'}
+                                    </button>
+                                 </div>
+                             </div>
+                        </div>
+
+                        <div className="glass-card rounded-2xl overflow-hidden border border-white/10">
+                            <table className="w-full text-left text-sm text-white/80">
+                                <thead className="bg-white/5 text-white/40 font-semibold uppercase text-xs">
+                                    <tr>
+                                        <th className="px-6 py-4">Title</th>
+                                        <th className="px-6 py-4">Category</th>
+                                        <th className="px-6 py-4">Trust Level</th>
+                                        <th className="px-6 py-4">Chunks</th>
+                                        <th className="px-6 py-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {docs.map(doc => (
+                                        <tr key={doc.id} className="hover:bg-white/5 transition-colors">
+                                            <td className="px-6 py-4 font-medium text-white">{doc.title}</td>
+                                            <td className="px-6 py-4">
+                                                <span className="bg-white/10 px-2 py-1 rounded text-xs">{doc.category || 'General'}</span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {doc.isTrusted ? 
+                                                    <span className="text-emerald-400 flex items-center gap-1 text-xs font-bold"><CheckCircle size={12}/> Verified Source</span> : 
+                                                    <span className="text-white/40 text-xs">Standard</span>
+                                                }
+                                            </td>
+                                            <td className="px-6 py-4 text-xs font-mono">{doc.chunkCount}</td>
+                                            <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                                <button 
+                                                    onClick={() => {
+                                                        setInspectDoc(doc.id);
+                                                        setInspectChunks(mockDB.getChunks().filter(c => c.docId === doc.id));
+                                                    }}
+                                                    className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-emerald-400 transition-colors"
+                                                    title="Inspect & Edit Passages"
+                                                >
+                                                    <Edit3 size={16}/>
+                                                </button>
+                                                <button 
+                                                    onClick={() => {
+                                                        if(confirm('Delete document?')) mockDB.deleteDocument(doc.id);
+                                                        refreshData();
+                                                    }}
+                                                    className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-red-400 transition-colors"
+                                                >
+                                                    <Trash2 size={16}/>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                             {docs.length === 0 && <div className="p-8 text-center text-white/30 italic">No documents in the knowledge base.</div>}
+                        </div>
+                    </div>
+                )}
+
+                {/* --- SCHOLAR REVIEW --- */}
+                {activeView === 'REVIEWS' && (
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-white font-bold text-lg">Scholar Verification Queue</h3>
+                            <div className="flex gap-2">
+                                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold border border-amber-500/20">
+                                    {reviews.filter(r=>r.status === 'Pending').length} Pending
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
+                            {reviews.map(review => (
+                                <div key={review.id} className="glass-card p-6 rounded-2xl border-white/10 relative overflow-hidden group">
+                                    <div className={`absolute top-0 left-0 w-1 h-full ${
+                                        review.status === 'Verified' ? 'bg-emerald-500' : 
+                                        review.status === 'Rejected' ? 'bg-red-500' : 'bg-amber-500'
+                                    }`}></div>
+                                    
+                                    <div className="ml-4">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <h4 className="text-white font-medium text-lg">"{review.query}"</h4>
+                                            <span className={`text-xs px-2 py-1 rounded border ${
+                                                 review.status === 'Verified' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 
+                                                 review.status === 'Rejected' ? 'border-red-500/30 text-red-400 bg-red-500/10' : 'border-amber-500/30 text-amber-400 bg-amber-500/10'
+                                            }`}>
+                                                {review.status}
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-black/30 p-4 rounded-xl border border-white/5 mb-4">
+                                            <p className="text-sm text-white/80 leading-relaxed font-light">{review.aiAnswer}</p>
+                                        </div>
+
+                                        {review.status === 'Pending' && (
+                                            <div className="flex gap-3 mt-4">
+                                                <button 
+                                                    onClick={() => handleReviewAction(review, 'Verified')}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-emerald-900/20"
+                                                >
+                                                    <CheckCircle size={14}/> Verify Answer
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleReviewAction(review, 'Rejected')}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-sm font-medium rounded-lg transition-colors border border-white/10"
+                                                >
+                                                    <X size={14}/> Reject / Hallucination
+                                                </button>
+                                            </div>
+                                        )}
+                                        {review.status === 'Verified' && (
+                                            <p className="text-xs text-emerald-500/60 mt-2 flex items-center gap-1">
+                                                <CheckCircle size={10}/> Verified by Scholar on {new Date(review.timestamp).toLocaleDateString()}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* --- SETTINGS --- */}
+                {activeView === 'SETTINGS' && (
+                    <div className="glass-card p-8 rounded-2xl border-white/10 max-w-3xl mx-auto">
+                        <h3 className="text-white font-bold text-xl mb-6 flex items-center gap-2">
+                            <Settings size={20} className="text-emerald-400"/> Configuration Center
+                        </h3>
+
+                        {/* Branding */}
+                        <div className="space-y-6">
+                            <div>
+                                <h4 className="text-sm font-bold text-white/60 uppercase mb-4">Branding & Identity</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                        <label className="text-xs text-white/40">App Name</label>
+                                        <input 
+                                            type="text" 
+                                            value={settings.appName}
+                                            onChange={(e) => setSettings({...settings, appName: e.target.value})}
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg p-3 text-white focus:border-emerald-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs text-white/40">Admin Password</label>
+                                        <input 
+                                            type="text" 
+                                            value={settings.adminPassword}
+                                            onChange={(e) => setSettings({...settings, adminPassword: e.target.value})}
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg p-3 text-white focus:border-emerald-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-full space-y-2">
+                                        <label className="text-xs text-white/40">Description</label>
+                                        <textarea 
+                                            value={settings.appDescription}
+                                            onChange={(e) => setSettings({...settings, appDescription: e.target.value})}
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg p-3 text-white focus:border-emerald-500 outline-none"
+                                            rows={2}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="w-full h-px bg-white/5"></div>
+
+                            {/* AI Behavior */}
+                            <div>
+                                <h4 className="text-sm font-bold text-white/60 uppercase mb-4">AI Behavior & Safety</h4>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-xs text-white/40">System Prompt (The "Brain")</label>
+                                        <textarea 
+                                            value={settings.systemInstruction}
+                                            onChange={(e) => setSettings({...settings, systemInstruction: e.target.value})}
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg p-3 text-xs font-mono text-emerald-100/80 focus:border-emerald-500 outline-none"
+                                            rows={6}
+                                        />
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-white/5 p-4 rounded-xl border border-white/5">
+                                            <label className="text-xs text-white/40 block mb-2">Model Selection</label>
+                                            <select 
+                                                value={settings.modelSelection}
+                                                onChange={(e) => setSettings({...settings, modelSelection: e.target.value as any})}
+                                                className="w-full bg-black/40 text-white p-2 rounded-lg border border-white/10"
+                                            >
+                                                <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast)</option>
+                                                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Reasoning)</option>
+                                            </select>
+                                        </div>
+                                        <div className="bg-white/5 p-4 rounded-xl border border-white/5">
+                                            <label className="text-xs text-white/40 block mb-2">Safety Threshold</label>
+                                            <select 
+                                                value={settings.safetyThreshold}
+                                                onChange={(e) => setSettings({...settings, safetyThreshold: e.target.value as any})}
+                                                className="w-full bg-black/40 text-white p-2 rounded-lg border border-white/10"
+                                            >
+                                                <option value="Low">Low (Permissive)</option>
+                                                <option value="Medium">Medium (Balanced)</option>
+                                                <option value="High">High (Strict)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="w-full h-px bg-white/5"></div>
+
+                            {/* Voice Settings */}
+                            <div>
+                                <h4 className="text-sm font-bold text-white/60 uppercase mb-4">Voice Interaction Controls</h4>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <div className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5">
+                                        <div className="flex items-center gap-3">
+                                            <Mic size={18} className="text-emerald-400" />
+                                            <span className="text-sm text-white">Enable Voice Input (Mic)</span>
+                                        </div>
+                                        <button onClick={() => setSettings({...settings, enableVoiceInput: !settings.enableVoiceInput})} className={`${settings.enableVoiceInput ? 'text-emerald-400' : 'text-white/20'}`}>
+                                            {settings.enableVoiceInput ? <ToggleRight size={32}/> : <ToggleLeft size={32}/>}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="w-full h-px bg-white/5"></div>
+
+                            {/* Feature Toggles */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5">
+                                    <span className="text-sm text-white">Maintenance Mode</span>
+                                    <button onClick={() => setSettings({...settings, maintenanceMode: !settings.maintenanceMode})} className={`${settings.maintenanceMode ? 'text-red-400' : 'text-white/20'}`}>
+                                        {settings.maintenanceMode ? <ToggleRight size={32}/> : <ToggleLeft size={32}/>}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button onClick={() => saveConfig(settings)} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold text-lg shadow-xl shadow-emerald-900/20 transition-all flex items-center justify-center gap-2">
+                                <Save size={20}/> Save Configuration
                             </button>
                         </div>
                     </div>
-                </div>
+                )}
 
-                {/* Upload */}
-                <div className="glass-card rounded-3xl p-8 relative overflow-hidden group bg-white/5 border-white/10">
-                    <h2 className="text-xl font-bold text-white mb-6">Upload Knowledge</h2>
-                    <div className="border-2 border-dashed border-white/20 hover:border-emerald-400/50 rounded-2xl h-32 flex flex-col items-center justify-center text-center transition-all bg-white/5 hover:bg-white/10 relative">
-                        <input 
-                            type="file" 
-                            accept="application/pdf"
-                            onChange={handleFileUpload}
-                            disabled={isUploading}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                        />
-                        <div className="bg-white/20 p-3 rounded-full shadow-md mb-2 group-hover:scale-110 transition-transform">
-                            <Upload className={`w-5 h-5 ${isUploading ? 'text-emerald-400 animate-bounce' : 'text-emerald-100'}`} />
+                {/* --- LOGS --- */}
+                {activeView === 'LOGS' && (
+                    <div className="glass-card rounded-2xl overflow-hidden border border-white/10">
+                        <div className="p-6 border-b border-white/10">
+                            <h3 className="text-white font-bold text-lg">System Audit Logs</h3>
+                            <p className="text-xs text-white/40">Compliance tracking for all administrative actions</p>
                         </div>
-                        {isUploading ? (
-                            <div>
-                                <p className="font-semibold text-emerald-400 text-sm">{uploadStatus}</p>
-                            </div>
-                        ) : (
-                            <div>
-                                <p className="font-semibold text-emerald-100 text-sm">Drop PDF here</p>
-                            </div>
-                        )}
+                        <table className="w-full text-left text-sm text-white/80">
+                            <thead className="bg-white/5 text-white/40 font-semibold uppercase text-xs">
+                                <tr>
+                                    <th className="px-6 py-4">Timestamp</th>
+                                    <th className="px-6 py-4">User</th>
+                                    <th className="px-6 py-4">Action</th>
+                                    <th className="px-6 py-4">Details</th>
+                                    <th className="px-6 py-4">Severity</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                                {logs.map(log => (
+                                    <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                                        <td className="px-6 py-4 font-mono text-xs text-white/50">{new Date(log.timestamp).toLocaleString()}</td>
+                                        <td className="px-6 py-4">{log.user}</td>
+                                        <td className="px-6 py-4 font-medium text-white">{log.action}</td>
+                                        <td className="px-6 py-4 text-xs text-white/70">{log.details}</td>
+                                        <td className="px-6 py-4">
+                                            <span className={`text-[10px] px-2 py-1 rounded border ${
+                                                log.severity === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                                log.severity === 'Warning' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                                                'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                            }`}>
+                                                {log.severity}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
-                </div>
+                )}
+
+                {/* --- ANALYTICS & MODERATION (Placeholders for scope) --- */}
+                {(activeView === 'ANALYTICS' || activeView === 'MODERATION') && (
+                    <div className="flex flex-col items-center justify-center h-[50vh] text-white/30">
+                        <AlertOctagon size={48} className="mb-4 opacity-50"/>
+                        <p>This enterprise module is initialized but requires more data to populate visualizations.</p>
+                        <p className="text-xs mt-2">Check back after 24 hours of user activity.</p>
+                    </div>
+                )}
             </div>
-        </div>
+        </main>
 
-        {/* Documents Table */}
-        <div className="glass-card rounded-3xl overflow-hidden border border-white/10 bg-white/5">
-            <div className="px-8 py-6 border-b border-white/10 bg-white/5 backdrop-blur-sm">
-                <h2 className="text-lg font-bold text-white">Knowledge Base</h2>
-            </div>
-            <table className="w-full text-left text-sm text-emerald-100/80">
-                <thead className="bg-white/5 text-emerald-200/60 font-medium">
-                    <tr>
-                        <th className="px-8 py-4">Document</th>
-                        <th className="px-8 py-4">Uploaded</th>
-                        <th className="px-8 py-4">Size</th>
-                        <th className="px-8 py-4 text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                    {docs.length === 0 ? (
-                        <tr>
-                            <td colSpan={4} className="px-8 py-12 text-center text-white/30">
-                                No documents found.
-                            </td>
-                        </tr>
-                    ) : (
-                        docs.map((doc) => (
-                            <tr key={doc.id} className="hover:bg-white/5 transition-colors">
-                                <td className="px-8 py-4 font-medium text-white flex items-center">
-                                    <div className="w-8 h-8 rounded bg-white/10 text-emerald-400 flex items-center justify-center mr-3">
-                                        <FileText size={16}/>
-                                    </div>
-                                    {doc.title}
-                                </td>
-                                <td className="px-8 py-4">
-                                    {new Date(doc.uploadDate).toLocaleDateString()}
-                                </td>
-                                <td className="px-8 py-4">
-                                    <span className="bg-white/10 text-emerald-200 text-xs px-2 py-1 rounded-full border border-white/10">
-                                        {(doc.size / 1024).toFixed(0)} KB
-                                    </span>
-                                </td>
-                                <td className="px-8 py-4 text-right flex items-center justify-end gap-2">
-                                    <button 
-                                        onClick={() => handleInspect(doc.id)}
-                                        title="Inspect Text"
-                                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-emerald-500/20 text-white/50 hover:text-emerald-400 flex items-center justify-center transition-all shadow-sm border border-white/10"
-                                    >
-                                        <Eye size={14} />
-                                    </button>
-                                    <button 
-                                        onClick={() => handleDelete(doc.id)}
-                                        title="Delete"
-                                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-red-500/20 text-white/50 hover:text-red-400 flex items-center justify-center transition-all shadow-sm border border-white/10"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                </td>
-                            </tr>
-                        ))
-                    )}
-                </tbody>
-            </table>
-        </div>
-      </div>
-
-      {/* Inspect Modal */}
-      {inspectDocId && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in-up">
-              <div className="bg-[#022c22] border border-white/20 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-                  <div className="flex items-center justify-between p-4 border-b border-white/10">
-                      <h3 className="text-white font-bold">Document Content Inspection</h3>
-                      <button onClick={closeInspect} className="text-white/50 hover:text-white"><X size={20}/></button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                      {inspectChunks.length === 0 ? (
-                          <p className="text-white/40 italic">No text chunks found for this document.</p>
-                      ) : (
-                          inspectChunks.map((chunk, idx) => (
-                              <div key={idx} className="bg-white/5 border border-white/10 rounded-lg p-3">
-                                  <div className="flex justify-between mb-2">
-                                      <span className="text-xs font-mono text-emerald-400">Chunk #{idx + 1}</span>
-                                      <span className="text-[10px] text-white/30">ID: {chunk.id}</span>
-                                  </div>
-                                  <p className="text-xs text-emerald-100/80 leading-relaxed whitespace-pre-wrap font-mono">
-                                      {chunk.text}
-                                  </p>
-                              </div>
-                          ))
-                      )}
-                  </div>
-              </div>
-          </div>
-      )}
-
+        {/* --- Inspect / Edit Modal --- */}
+        {inspectDoc && (
+             <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+                 <div className="bg-[#022c22] border border-white/20 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+                     <div className="flex items-center justify-between p-6 border-b border-white/10 bg-black/20">
+                         <div>
+                            <h3 className="text-white font-bold text-xl">Passage Editor</h3>
+                            <p className="text-xs text-emerald-400 font-mono mt-1">DOC ID: {inspectDoc}</p>
+                         </div>
+                         <button onClick={() => { setInspectDoc(null); setInspectChunks([]); }} className="p-2 hover:bg-white/10 rounded-full text-white">
+                             <X size={24}/>
+                         </button>
+                     </div>
+                     <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                         {inspectChunks.map((chunk, idx) => (
+                             <div key={chunk.id} className="bg-black/20 border border-white/5 rounded-xl p-4 hover:border-emerald-500/30 transition-colors group">
+                                 <div className="flex justify-between mb-2">
+                                     <span className="text-xs font-bold text-emerald-500 uppercase tracking-wider">Chunk #{idx + 1}</span>
+                                     <button 
+                                        onClick={() => {
+                                            const newText = prompt("Edit Passage Text:", chunk.text);
+                                            if (newText) {
+                                                mockDB.updateChunk({ ...chunk, text: newText });
+                                                setInspectChunks(mockDB.getChunks().filter(c => c.docId === inspectDoc)); // Refresh local
+                                            }
+                                        }}
+                                        className="text-xs text-white/40 hover:text-emerald-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                     >
+                                         <Edit3 size={12}/> Edit Text
+                                     </button>
+                                 </div>
+                                 <p className="text-sm text-white/80 leading-relaxed font-light">{chunk.text}</p>
+                             </div>
+                         ))}
+                     </div>
+                 </div>
+             </div>
+        )}
     </div>
   );
 };

@@ -1,17 +1,16 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square } from 'lucide-react';
 import { useLiquid } from './LiquidBackground';
 
 interface VoiceInputProps {
   onAudioCaptured: (audioBlob: Blob) => void;
-  onLiveToggle: (active: boolean) => void;
-  isLiveMode: boolean;
   disabled: boolean;
   isProcessing?: boolean;
   size?: 'sm' | 'md' | 'lg'; // Added size prop
 }
 
-const VoiceInput: React.FC<VoiceInputProps> = ({ onAudioCaptured, onLiveToggle, isLiveMode, disabled, isProcessing, size = 'lg' }) => {
+const VoiceInput: React.FC<VoiceInputProps> = ({ onAudioCaptured, disabled, isProcessing, size = 'lg' }) => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -108,22 +107,15 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onAudioCaptured, onLiveToggle, 
   };
 
   const handleClick = () => {
-    if (isLiveMode) {
-        const newState = !isRecording;
-        setIsRecording(newState);
-        onLiveToggle(newState);
-        if (newState) addRipple(0, 0, 2.0);
-    } else {
-        if (isRecording) stopRecording();
-        else startRecording();
-    }
+    if (isRecording) stopRecording();
+    else startRecording();
   };
 
   useEffect(() => {
-    if (!isLiveMode && disabled && isRecording) {
+    if (disabled && isRecording) {
         setIsRecording(false);
     }
-  }, [disabled, isLiveMode]);
+  }, [disabled]);
 
   // Keyboard Shortcut: "m" for Mic
   useEffect(() => {
@@ -142,7 +134,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onAudioCaptured, onLiveToggle, 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRecording, isLiveMode, disabled, handleClick]); // Re-bind when state changes to ensure correct closure
+  }, [isRecording, disabled, handleClick]); // Re-bind when state changes to ensure correct closure
 
   // Determine Dimensions based on Size prop
   const btnSize = size === 'sm' ? 'w-10 h-10' : size === 'md' ? 'w-12 h-12' : 'w-20 h-20';
@@ -153,19 +145,19 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onAudioCaptured, onLiveToggle, 
         {/* Active Glow/Ripple Layer */}
         {isRecording && (
            <div className="absolute inset-0 pointer-events-none">
-                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full rounded-full animate-ping opacity-30 ${isLiveMode ? 'bg-red-500' : 'bg-cyan-400'}`}></div>
-                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] rounded-full animate-ping opacity-10 animation-delay-300 ${isLiveMode ? 'bg-red-500' : 'bg-cyan-400'}`} style={{animationDelay: '0.3s'}}></div>
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full rounded-full animate-ping opacity-30 bg-cyan-400`}></div>
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] rounded-full animate-ping opacity-10 animation-delay-300 bg-cyan-400`} style={{animationDelay: '0.3s'}}></div>
            </div>
         )}
 
         {/* Floating Siri Waveform (Positioned above button) */}
         {isRecording && (
             <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 w-32 h-10 flex items-center justify-center space-x-1 pointer-events-none">
-                <div className={`w-1 rounded-full animate-wave ${isLiveMode ? 'bg-red-400' : 'bg-cyan-300'}`} style={{ animationDuration: '0.5s', height: '40%' }}></div>
-                <div className={`w-1 rounded-full animate-wave ${isLiveMode ? 'bg-orange-400' : 'bg-emerald-300'}`} style={{ animationDuration: '0.7s', height: '70%' }}></div>
-                <div className={`w-1 rounded-full animate-wave ${isLiveMode ? 'bg-red-500' : 'bg-white'}`} style={{ animationDuration: '0.4s', height: '100%' }}></div>
-                <div className={`w-1 rounded-full animate-wave ${isLiveMode ? 'bg-orange-400' : 'bg-emerald-300'}`} style={{ animationDuration: '0.6s', height: '70%' }}></div>
-                <div className={`w-1 rounded-full animate-wave ${isLiveMode ? 'bg-red-400' : 'bg-cyan-300'}`} style={{ animationDuration: '0.8s', height: '40%' }}></div>
+                <div className={`w-1 rounded-full animate-wave bg-cyan-300`} style={{ animationDuration: '0.5s', height: '40%' }}></div>
+                <div className={`w-1 rounded-full animate-wave bg-emerald-300`} style={{ animationDuration: '0.7s', height: '70%' }}></div>
+                <div className={`w-1 rounded-full animate-wave bg-white`} style={{ animationDuration: '0.4s', height: '100%' }}></div>
+                <div className={`w-1 rounded-full animate-wave bg-emerald-300`} style={{ animationDuration: '0.6s', height: '70%' }}></div>
+                <div className={`w-1 rounded-full animate-wave bg-cyan-300`} style={{ animationDuration: '0.8s', height: '40%' }}></div>
             </div>
         )}
         
@@ -179,7 +171,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onAudioCaptured, onLiveToggle, 
                 relative z-10 flex items-center justify-center transition-all duration-500
                 backdrop-blur-md shadow-lg border border-white/30
                 ${isRecording 
-                    ? (isLiveMode ? 'bg-gradient-to-tr from-red-500 to-orange-500 animate-liquid-morph scale-110' : 'bg-gradient-to-tr from-cyan-500 to-blue-600 animate-liquid-morph scale-110')
+                    ? 'bg-gradient-to-tr from-cyan-500 to-blue-600 animate-liquid-morph scale-110'
                     : 'bg-white/10 hover:bg-white/20 hover:scale-105 rounded-full'
                 }
                 ${(disabled && !isRecording) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
@@ -191,7 +183,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onAudioCaptured, onLiveToggle, 
             ) : isRecording ? (
                 <Square size={iconSize * 0.6} className="text-white fill-current" />
             ) : (
-                <Mic size={iconSize} className={`${isLiveMode ? 'text-red-400' : 'text-white'}`} />
+                <Mic size={iconSize} className='text-white' />
             )}
         </button>
     </div>
